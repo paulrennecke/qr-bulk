@@ -1,0 +1,41 @@
+name: Deploy via SFTP with git-ftp and SSH key
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up SSH key and config
+        env:
+          SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SFTP_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+          echo -e "Host *\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
+
+      - name: Install git and git-ftp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git git-ftp openssh-client
+
+      - name: Deploy via git-ftp using SSH key
+        env:
+          HOST: ${{ secrets.SFTP_HOST }}
+          REMOTE_ROOT: ${{ secrets.SFTP_REMOTE_ROOT }}
+          USERNAME: ${{ secrets.SFTP_USERNAME }}
+        run: |
+          git config git-ftp.url "sftp://$HOST"
+          git config git-ftp.user "$USERNAME"
+          git config git-ftp.privkey "~/.ssh/id_rsa"
+          git ftp push --auto-init --remote-root "$REMOTE_ROOT" --verbose
