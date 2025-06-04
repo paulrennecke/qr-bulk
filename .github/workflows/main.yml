@@ -1,3 +1,4 @@
+# Deploy to server via SFTP with git-ftp and SSH key
 name: Deploy via SFTP with git-ftp and SSH key
 
 on:
@@ -11,23 +12,29 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for git-ftp
 
       - name: Set up SSH key and config
         env:
           SFTP_PRIVATE_KEY: ${{ secrets.SFTP_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "$SFTP_PRIVATE_KEY" > ~/.ssh/id_rsa
+          echo "$SFTP_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_rsa
-          echo -e "Host *\n\tStrictHostKeyChecking no\n" > ~/.ssh/config
-
-      - name: Install git and git-ftp
+          chmod 700 ~/.ssh
+          ssh-keyscan -H ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+          
+      - name: Install git-ftp
         run: |
           sudo apt-get update
-          sudo apt-get install -y git git-ftp openssh-client
+          sudo apt-get install -y git-ftp
+
+      - name: Configure git user
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
 
       - name: Deploy via git-ftp using SSH key
         env:
@@ -35,7 +42,7 @@ jobs:
           REMOTE_ROOT: ${{ secrets.SFTP_REMOTE_ROOT }}
           USERNAME: ${{ secrets.SFTP_USERNAME }}
         run: |
-          git config git-ftp.url "sftp://$HOST"
-          git config git-ftp.user "$USERNAME"
-          git config git-ftp.privkey "~/.ssh/id_rsa"
-          git ftp push --auto-init --remote-root "$REMOTE_ROOT" --verbose
+          git config git-ftp.url "sftp://$USERNAME@$HOST$REMOTE_ROOT"
+          git config git-ftp.key ~/.ssh/id_rsa
+          git config git-ftp.insecure 1
+          git ftp push --auto-init --verbose
