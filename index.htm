@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,15 +18,15 @@
             <div class="col-md-8 text-center">
                 <h1 class="mb-4">QR Code Generator</h1>
                 <div class="card p-3 mb-3 bg-secondary text-white">
-                    <label for="fileInput" class="form-label">CSV oder XLSX auswählen</label>
+                    <label for="fileInput" class="form-label">Select CSV or XLSX</label>
                     <input type="file" id="fileInput" class="form-control mb-3" accept=".xlsx, .csv">
-                    <label for="columnSelect" class="form-label">Spalte auswählen</label>
+                    <label for="columnSelect" class="form-label">Select column</label>
                     <select id="columnSelect" class="form-select mb-3">
-                        <option value="" disabled selected>Bitte Datei auswählen</option>
+                        <option value="" disabled selected>Please select a file</option>
                     </select>
                 </div>
-                <p>oder direkt einfügen</p>
-                <textarea id="inputText" class="form-control mb-3" rows="10" placeholder="Einen QR-Code pro Zeile..."></textarea>
+                <p>or paste directly</p>
+                <textarea id="inputText" class="form-control mb-3" rows="10" placeholder="One QR code per line..."></textarea>
                 <div class="mb-3 d-flex justify-content-center align-items-center">
                     <div class="form-check form-check-inline">
                         <input class="form-check-input" type="radio" name="formatRadio" id="formatPNG" value="png" checked>
@@ -42,7 +42,7 @@
                     </div>
                 </div>
                 
-                <button class="btn btn-primary mb-3" onclick="generateQRCodes()">QR Codes generieren und herunterladen</button>
+                <button class="btn btn-primary mb-3" onclick="generateQRCodes()">Generate and Download QR Codes</button>
                 <div id="statusContainer" class="mt-3" style="display: none;">
                     <div id="statusMessage" class="alert alert-info" role="alert">
                         <span id="statusText"></span>
@@ -65,15 +65,17 @@
     <script>
         async function generateQRCodes() {
             const text = document.getElementById('inputText').value;
-            const lines = text.split('\n');
-            const zip = new JSZip();
+            const lines = text.split('\n').filter(line => line.trim() !== '');
             const statusContainer = document.getElementById('statusContainer');
             const statusText = document.getElementById('statusText');
             const loadingSpinner = document.getElementById('loadingSpinner');
-            
-            // Get selected format
+
+            function sanitizeFilename(name) {
+                return name.replace(/[\\/:*?"<>|]/g, '_');
+            }
+
             const formatRadios = document.getElementsByName('formatRadio');
-            let selectedFormat = 'png'; // Default
+            let selectedFormat = 'png';
             for (const radio of formatRadios) {
                 if (radio.checked) {
                     selectedFormat = radio.value;
@@ -83,68 +85,102 @@
             const fileExtension = `.${selectedFormat}`;
 
             statusContainer.style.display = 'block';
-            statusText.innerText = 'QR Codes werden erstellt';
+            statusText.innerText = 'Creating QR codes';
             loadingSpinner.style.display = 'inline-block';
 
+            if (lines.length === 1) {
+                const line = lines[0];
+                const safeName = sanitizeFilename(line.trim());
+                if (selectedFormat === 'svg') {
+                    let svgString = '';
+                    await QRCode.toString(line.trim(), {
+                        type: 'svg',
+                        errorCorrectionLevel: 'H'
+                    }).then(string => {
+                        svgString = string;
+                    });
+                    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `${safeName}${fileExtension}`;
+                    link.click();
+                } else if (selectedFormat === 'pdf') {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({
+                        orientation: "portrait",
+                        unit: "mm",
+                        format: [100, 100]
+                    });
+                    const qrCodeDataUrl = await QRCode.toDataURL(line.trim(), {
+                        errorCorrectionLevel: 'H',
+                        margin: 1,
+                        width: 80
+                    });
+                    doc.addImage(qrCodeDataUrl, 'PNG', 10, 10, 80, 80);
+                    const pdfBlob = doc.output('blob');
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(pdfBlob);
+                    link.download = `${safeName}${fileExtension}`;
+                    link.click();
+                } else {
+                    const qrCodeDataUrl = await QRCode.toDataURL(line.trim());
+                    const link = document.createElement('a');
+                    link.href = qrCodeDataUrl;
+                    link.download = `${safeName}${fileExtension}`;
+                    link.click();
+                }
+                statusText.innerText = 'Successfully created!';
+                loadingSpinner.style.display = 'none';
+                setTimeout(() => {
+                    statusContainer.style.display = 'none';
+                }, 3000);
+                return;
+            }
+
+            const zip = new JSZip();
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                if (line.trim() !== '') {
-                    if (selectedFormat === 'svg') {
-                        // SVG Format
-                        let svgString = '';
-                        await QRCode.toString(line.trim(), {
-                            type: 'svg',
-                            errorCorrectionLevel: 'H'
-                        }).then(string => {
-                            svgString = string;
-                        });
-                        zip.file(`${line.trim()}${fileExtension}`, svgString);
-                    } else if (selectedFormat === 'pdf') {
-                        // PDF Format mit jsPDF erstellen
-                        const { jsPDF } = window.jspdf;
-                        const doc = new jsPDF({
-                            orientation: "portrait",
-                            unit: "mm",
-                            format: [100, 100]
-                        });
-                        
-                        // QR Code als DataURL erstellen
-                        const qrCodeDataUrl = await QRCode.toDataURL(line.trim(), {
-                            errorCorrectionLevel: 'H',
-                            margin: 1,
-                            width: 80
-                        });
-                        
-                        // QR-Code in PDF einfügen
-                        doc.addImage(qrCodeDataUrl, 'PNG', 10, 10, 80, 80);
-                        
-                        // Text unter dem QR-Code hinzufügen
-                        //doc.setFontSize(10);
-                        //doc.text(line.trim(), 50, 95, { align: 'center' });
-                        
-                        // PDF als Blob holen und in ZIP speichern
-                        const pdfBlob = doc.output('blob');
-                        const reader = new FileReader();
-                        
-                        // Promise für asynchrones Konvertieren
-                        await new Promise((resolve) => {
-                            reader.onload = function() {
-                                const arrayBuffer = reader.result;
-                                zip.file(`${line.trim()}${fileExtension}`, arrayBuffer);
-                                resolve();
-                            };
-                            reader.readAsArrayBuffer(pdfBlob);
-                        });
-                    } else {
-                        // PNG Format (default)
-                        const qrCodeDataUrl = await QRCode.toDataURL(line.trim());
-                        const imgData = qrCodeDataUrl.split(',')[1];
-                        zip.file(`${line.trim()}${fileExtension}`, imgData, { base64: true });
-                    }
+                const safeName = sanitizeFilename(line.trim());
+                if (selectedFormat === 'svg') {
+                    let svgString = '';
+                    await QRCode.toString(line.trim(), {
+                        type: 'svg',
+                        errorCorrectionLevel: 'H'
+                    }).then(string => {
+                        svgString = string;
+                    });
+                    zip.file(`${safeName}${fileExtension}`, svgString);
+                } else if (selectedFormat === 'pdf') {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({
+                        orientation: "portrait",
+                        unit: "mm",
+                        format: [100, 100]
+                    });
+                    const qrCodeDataUrl = await QRCode.toDataURL(line.trim(), {
+                        errorCorrectionLevel: 'H',
+                        margin: 1,
+                        width: 80
+                    });
+                    doc.addImage(qrCodeDataUrl, 'PNG', 10, 10, 80, 80);
+                    const pdfBlob = doc.output('blob');
+                    const reader = new FileReader();
+                    await new Promise((resolve) => {
+                        reader.onload = function() {
+                            const arrayBuffer = reader.result;
+                            zip.file(`${safeName}${fileExtension}`, arrayBuffer);
+                            resolve();
+                        };
+                        reader.readAsArrayBuffer(pdfBlob);
+                    });
+                } else {
+                    const qrCodeDataUrl = await QRCode.toDataURL(line.trim());
+                    const imgData = qrCodeDataUrl.split(',')[1];
+                    zip.file(`${safeName}${fileExtension}`, imgData, { base64: true });
                 }
             }
 
-            statusText.innerText = 'ZIP wird erstellt...';
+            statusText.innerText = 'Creating ZIP...';
 
             zip.generateAsync({ type: 'blob' }).then(function (content) {
                 const link = document.createElement('a');
@@ -152,7 +188,7 @@
                 link.download = 'qrcodes.zip';
                 link.click();
 
-                statusText.innerText = 'Erfolgreich erstellt!';
+                statusText.innerText = 'Successfully created!';
                 loadingSpinner.style.display = 'none';
                 setTimeout(() => {
                     statusContainer.style.display = 'none';
@@ -181,7 +217,7 @@
                     sheetData[0].forEach((_, index) => {
                         const option = document.createElement('option');
                         option.value = index;
-                        option.text = `Spalte ${index}`;
+                        option.text = `Column ${index}`;
                         columnSelect.appendChild(option);
                     });
 
